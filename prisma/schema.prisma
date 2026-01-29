@@ -1,0 +1,499 @@
+// CRM Application - Prisma Schema
+// Generated: 2026-01-28
+// Based on: docs/要件定義書.md
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ============================================================
+// Enums
+// ============================================================
+
+enum Role {
+  ADMIN   // 管理者
+  SALES   // 営業担当
+  OFFICE  // 事務担当
+}
+
+enum CustomerType {
+  CLIENT   // クライアント
+  REFERRER // 紹介者
+}
+
+enum Industry {
+  IT           // IT
+  MANUFACTURING // 製造
+  RETAIL       // 小売
+  SERVICE      // サービス
+  OTHER        // その他
+}
+
+enum BusinessScale {
+  LARGE      // 大企業
+  MEDIUM     // 中企業
+  SMALL      // 小企業
+  INDIVIDUAL // 個人事業主
+}
+
+enum ContactTool {
+  EMAIL    // メール
+  PHONE    // 電話
+  CHATWORK // Chatwork
+  SLACK    // Slack
+  LINE     // LINE
+  ZOOM     // Zoom
+}
+
+enum DealType {
+  NEW      // 新規
+  EXISTING // 既存
+  REFERRAL // 紹介
+}
+
+enum DealProgress {
+  LEAD             // リード
+  FIRST_MEETING    // 初回面談
+  WAITING_DETAILS  // 明細待ち
+  DETAILS_OBTAINED // 明細取得済み
+}
+
+enum ProductType {
+  SPOT  // 単発
+  STOCK // ストック
+}
+
+enum ProductProgress {
+  NEGOTIATION      // 交渉
+  PROPOSAL         // 提案
+  VERBAL_AGREEMENT // 口頭承諾
+  CONTRACT         // 契約
+}
+
+enum Probability {
+  A // 確度A
+  B // 確度B
+  C // 確度C
+  D // 確度D
+}
+
+enum TaskStatus {
+  TODO        // 未着手
+  IN_PROGRESS // 進行中
+  COMPLETED   // 完了
+}
+
+enum TaskType {
+  ESTIMATE // 見積作成
+  CONTRACT // 契約書作成
+  INVOICE  // 請求書発行
+  DELIVERY // 納品対応
+  OTHER    // その他
+}
+
+enum TaskBinding {
+  DEAL       // 案件
+  PRODUCT    // 商材
+  STANDALONE // 単体
+}
+
+enum WebhookEntity {
+  CUSTOMER // 顧客
+  DEAL     // 案件
+  PRODUCT  // 商材
+  TASK     // タスク
+}
+
+enum WebhookButtonLocation {
+  DETAIL // 詳細画面
+  LIST   // 一覧画面
+}
+
+enum EntityType {
+  CUSTOMER // 顧客
+  DEAL     // 案件
+  PRODUCT  // 商材
+  TASK     // タスク
+}
+
+enum FieldType {
+  TEXT         // テキスト
+  NUMBER       // 数値
+  DATE         // 日付
+  SELECT       // 単一選択
+  MULTI_SELECT // 複数選択
+  RELATION     // リレーション
+  CHECKBOX     // チェックボックス
+  URL          // URL
+  EMAIL        // メールアドレス
+}
+
+// ============================================================
+// Models
+// ============================================================
+
+// ============================================================
+// Field Definition (カスタムフィールド定義)
+// ============================================================
+
+// フィールド定義（管理者がカスタマイズ可能）
+model FieldDefinition {
+  id          String     @id @default(cuid())
+  entityType  EntityType // 対象エンティティ
+  fieldName   String     // フィールド名（内部名）
+  fieldLabel  String     // 表示ラベル
+  fieldType   FieldType  // フィールドタイプ
+  isRequired  Boolean    @default(false) // 必須フラグ
+  options     Json?      // 選択肢（セレクト系用）
+  order       Int        @default(0) // 表示順
+  isSystem    Boolean    @default(false) // システムフィールドは削除不可
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@unique([entityType, fieldName])
+  @@index([entityType, order])
+}
+
+// ============================================================
+// NextAuth.js Models
+// ============================================================
+
+// ユーザー (NextAuth対応)
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  emailVerified DateTime? // NextAuth用
+  name          String?
+  image         String?   // NextAuth用（プロフィール画像）
+  passwordHash  String?   // Credentials認証用（bcryptハッシュ）
+  role          Role      @default(SALES)
+  invitedAt     DateTime? // 招待日時（招待制認証用）
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+
+  // NextAuth Relations
+  accounts Account[]
+  sessions Session[]
+
+  // CRM Relations
+  mainCustomers  Customer[] @relation("MainSalesRep")
+  subCustomers   Customer[] @relation("SubRep")
+  salesDeals     Deal[]     @relation("SalesRep")
+  officeDeals    Deal[]     @relation("OfficeRep")
+  salesProducts  Product[]  @relation("ProductSalesRep")
+  officeProducts Product[]  @relation("ProductOfficeRep")
+  assignedTasks  Task[]     @relation("TaskAssignee")
+  createdTasks   Task[]     @relation("TaskCreator")
+}
+
+// NextAuth Account (OAuth連携用)
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+// NextAuth Session (セッション管理)
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// NextAuth VerificationToken (メール認証用)
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// 顧客
+model Customer {
+  id                    String         @id @default(cuid())
+  clientNo              String         @unique // 自動採番 C-0001形式
+  name                  String         // クライアント名
+  nameKana              String?        // クライアント名_かな
+  customerTypes         CustomerType[] // 顧客タイプ（マルチセレクト）
+  contactPerson         String?        // クライアント担当者名
+  contactPersonPhone    String?        // クライアント担当者連絡先
+  email                 String?        // メールアドレス
+  postalCode            String?        // 郵便番号
+  address               String?        // 住所
+  website               String?        // クライアントHP
+  industry              Industry?      // 業種
+  scale                 BusinessScale? // 事業規模
+  employeeCount         Int?           // 従業員数
+  mainContactTool       ContactTool?   // 【メイン】連絡ツール
+  subContactTool        ContactTool?   // 【サブ】連絡ツール
+  chatworkUrl           String?        // chatwork_URL
+  slackChannel          String?        // slackチャンネル
+  googleDriveUrl        String?        // google drive_URL
+  consultingContract    Boolean        @default(false) // コンサルティング契約
+  referralFeePercent    Float?         // 紹介料(％)
+  referralFee           Float?         // 紹介手数料（紹介者の場合）
+  notes                 String?        // 備考
+  customFields          Json?          // カスタムフィールドの値を格納
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+  deletedAt             DateTime?      // 論理削除
+
+  // Relations
+  mainSalesRepId String?
+  mainSalesRep   User?   @relation("MainSalesRep", fields: [mainSalesRepId], references: [id])
+
+  subRepId String?
+  subRep   User?   @relation("SubRep", fields: [subRepId], references: [id])
+
+  referrerId String?
+  referrer   Customer?  @relation("Referrals", fields: [referrerId], references: [id])
+  referrals  Customer[] @relation("Referrals")
+
+  deals Deal[]
+
+  // Performance indexes
+  @@index([mainSalesRepId])
+  @@index([subRepId])
+  @@index([referrerId])
+  @@index([industry])
+  @@index([scale])
+  @@index([deletedAt])
+  @@index([deletedAt, createdAt(sort: Desc)])
+}
+
+// 案件
+model Deal {
+  id               String       @id @default(cuid())
+  name             String       // 案件名
+  dealType         DealType?    // 顧客種別（新規/既存/紹介）
+  progress         DealProgress @default(LEAD) // 案件進捗
+  occurredDate     DateTime?    // 発生日
+  lastContactDate  DateTime?    // 最終コンタクト日
+  isImportant      Boolean      @default(false) // 重要案件チェック
+  notes            String?      // 備考
+  customFields     Json?        // カスタムフィールドの値を格納
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  deletedAt        DateTime?    // 論理削除
+
+  // Relations
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+
+  salesRepId String?
+  salesRep   User?   @relation("SalesRep", fields: [salesRepId], references: [id])
+
+  officeRepId String?
+  officeRep   User?   @relation("OfficeRep", fields: [officeRepId], references: [id])
+
+  products Product[]
+  tasks    Task[]
+
+  // Performance indexes
+  @@index([customerId])
+  @@index([salesRepId])
+  @@index([officeRepId])
+  @@index([progress])
+  @@index([deletedAt])
+  @@index([deletedAt, createdAt(sort: Desc)])
+  @@index([deletedAt, progress, salesRepId])
+}
+
+// 商材
+model Product {
+  id               String          @id @default(cuid())
+  name             String          // 商材名
+  productType      ProductType     // 商材種別（単発/ストック）
+  progress         ProductProgress @default(NEGOTIATION) // 進捗
+  probability      Probability?    // 確度
+  expectedCloseDate DateTime?      // 成約予定日
+  orderDate        DateTime?       // 受注日
+  deliveryDate     DateTime?       // 納品日（単発のみ）
+  recordingDate    DateTime?       // 計上日（単発のみ）
+  recordingStartDate DateTime?     // 計上開始日（ストックのみ）
+  expectedAmount   Float?          // 見込み金額（単発のみ）
+  confirmedAmount  Float?          // 確定金額（単発のみ）
+  monthlyAmount    Float?          // 月額金額（ストックのみ）
+  grossProfit      Float?          // 粗利（単発のみ）
+  referralFee      Float?          // 紹介料（単発のみ）
+  customFields     Json?           // カスタムフィールドの値を格納
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  deletedAt        DateTime?       // 論理削除
+
+  // Relations
+  dealId String
+  deal   Deal   @relation(fields: [dealId], references: [id])
+
+  salesRepId String?
+  salesRep   User?   @relation("ProductSalesRep", fields: [salesRepId], references: [id])
+
+  officeRepId String?
+  officeRep   User?   @relation("ProductOfficeRep", fields: [officeRepId], references: [id])
+
+  todos ProductTodo[]
+  tasks Task[]
+
+  // Performance indexes
+  @@index([dealId])
+  @@index([salesRepId])
+  @@index([officeRepId])
+  @@index([productType])
+  @@index([progress])
+  @@index([probability])
+  @@index([deletedAt])
+  @@index([deletedAt, productType, orderDate])
+}
+
+// タスク
+model Task {
+  id            String       @id @default(cuid())
+  name          String       // タスク名
+  detail        String?      // 詳細
+  status        TaskStatus   @default(TODO) // ステータス
+  taskType      TaskType?    // タイプ
+  binding       TaskBinding? // 紐づき先
+  dueDate       DateTime?    // 対応期日
+  completedAt   DateTime?    // 対応完了日
+  fileUrl       String?      // ファイルURL
+  customFields  Json?        // カスタムフィールドの値を格納
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  deletedAt     DateTime?    // 論理削除
+
+  // Relations
+  dealId String?
+  deal   Deal?   @relation(fields: [dealId], references: [id])
+
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id])
+
+  assigneeId String?
+  assignee   User?   @relation("TaskAssignee", fields: [assigneeId], references: [id])
+
+  creatorId String?
+  creator   User?   @relation("TaskCreator", fields: [creatorId], references: [id])
+
+  // Performance indexes
+  @@index([dealId])
+  @@index([productId])
+  @@index([assigneeId])
+  @@index([creatorId])
+  @@index([status])
+  @@index([dueDate])
+  @@index([deletedAt])
+  @@index([assigneeId, status, deletedAt])
+}
+
+// 商材TODO
+model ProductTodo {
+  id          String    @id @default(cuid())
+  name        String    // TODO名
+  completed   Boolean   @default(false) // 完了
+  completedAt DateTime? // 完了日
+  order       Int       @default(0) // 並び順
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Relations
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+}
+
+// TODOテンプレート
+model TodoTemplate {
+  id          String   @id @default(cuid())
+  name        String   // テンプレート名
+  description String?  // 説明
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  items TodoItem[]
+}
+
+// TODOアイテム
+model TodoItem {
+  id        String   @id @default(cuid())
+  name      String   // TODO名
+  order     Int      @default(0) // 並び順
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  templateId String
+  template   TodoTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+}
+
+// 月次目標
+model MonthlyTarget {
+  id           String   @id @default(cuid())
+  yearMonth    String   @unique // 例: "2024-07"
+  targetAmount Float    // 目標売上
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// 送信Webhook設定
+model WebhookSend {
+  id             String                @id @default(cuid())
+  name           String                // Webhook名
+  buttonName     String                // ボタン名
+  url            String                // Webhook URL
+  entity         WebhookEntity         // 連携先DB
+  fields         String[]              // 送信項目（フィールド名の配列）
+  includeParent  Boolean               @default(false) // リレーション先も送信
+  buttonLocation WebhookButtonLocation @default(DETAIL) // ボタン配置場所
+  isActive       Boolean               @default(true) // 有効/無効
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+}
+
+// 受信Webhook設定
+model WebhookReceive {
+  id        String   @id @default(cuid())
+  name      String   // Webhook名
+  webhookId String   @unique // リクエストボディに含めるID
+  isActive  Boolean  @default(true) // 有効/無効
+  workflow  Json     // ワークフローアクション（JSON形式で保存）
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  logs WebhookLog[]
+}
+
+// Webhookログ
+model WebhookLog {
+  id           String   @id @default(cuid())
+  receivedData Json     // 受信データ
+  receivedAt   DateTime @default(now())
+
+  // Relations
+  webhookReceiveId String
+  webhookReceive   WebhookReceive @relation(fields: [webhookReceiveId], references: [id])
+}
